@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Log QSO - F4NKP</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      background-color: #121212;
+      color: #e0e0e0;
+    }
+    h1 { color: #4da6ff; margin-bottom: 5px; }
+    .status { margin-bottom: 10px; font-weight: bold; color: #b0bec5; }
+    .files-list { font-size: 0.9em; color: #80d8ff; margin-bottom: 15px; }
+
+    /* Panneau de statistiques */
+    .stats-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+    .stat-card {
+      background-color: #1e1e1e;
+      border: 1px solid #333;
+      border-radius: 6px;
+      padding: 12px 16px;
+      min-width: 200px;
+      flex: 1;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    }
+    .stat-card h3 {
+      margin: 0 0 8px 0;
+      color: #4da6ff;
+      font-size: 1em;
+      border-bottom: 1px solid #333;
+      padding-bottom: 5px;
+    }
+    .stat-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      font-size: 0.9em;
+    }
+    .stat-item {
+      background: #262626;
+      padding: 4px 8px;
+      border-radius: 4px;
+      border: 1px solid #3d3d3d;
+    }
+    .stat-item strong { color: #ffb74d; }
+
+    /* Contrôles de pagination */
+    .pagination-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background-color: #1e1e1e;
+      padding: 10px 15px;
+      border: 1px solid #333;
+      border-radius: 6px;
+      margin-bottom: 15px;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .page-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .page-btn {
+      background-color: #262626;
+      color: #4da6ff;
+      border: 1px solid #3d3d3d;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    .page-btn:disabled {
+      color: #555;
+      border-color: #2a2a2a;
+      cursor: not-allowed;
+    }
+    .page-btn:hover:not(:disabled) {
+      background-color: #333;
+      color: #80d8ff;
+    }
+    select {
+      background-color: #262626;
+      color: #e0e0e0;
+      border: 1px solid #3d3d3d;
+      padding: 5px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    /* Tableau */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #1e1e1e;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    th, td { padding: 10px 12px; border: 1px solid #333; text-align: left; }
+    th { background-color: #1f2937; color: #4da6ff; border-bottom: 2px solid #374151; }
+    tr:nth-child(even) { background-color: #262626; }
+    tr:hover { background-color: #333333; }
+    .callsign-link {
+      color: #ffb74d;
+      font-weight: bold;
+      text-decoration: none;
+    }
+    .callsign-link:hover {
+      text-decoration: underline;
+      color: #ffa726;
+    }
+    .source-file { color: #888; font-size: 0.85em; }
+  </style>
+</head>
+<body>
+
+  <h1>Carnet de Trafic - F4NKP</h1>
+  <div id="status" class="status">Analyse du dépôt GitHub en cours...</div>
+  <div id="filesFound" class="files-list"></div>
+
+  <!-- Section Statistiques -->
+  <div id="statsContainer" class="stats-container" style="display:none;">
+    <div class="stat-card">
+      <h3>Statistiques par Mode</h3>
+      <div id="modeStats" class="stat-list"></div>
+    </div>
+    <div class="stat-card">
+      <h3>Statistiques par Bande</h3>
+      <div id="bandStats" class="stat-list"></div>
+    </div>
+  </div>
+
+  <!-- Barre de Pagination -->
+  <div id="paginationBar" class="pagination-bar" style="display:none;">
+    <div>
+      <label for="itemsPerPage">Afficher par page : </label>
+      <select id="itemsPerPage" onchange="changePerPage()">
+        <option value="10">10</option>
+        <option value="20">20</option>
+        <option value="40" selected>40</option>
+        <option value="50">50</option>
+        <option value="100">100</option>
+        <option value="all">Tous</option>
+      </select>
+    </div>
+
+    <div class="page-controls">
+      <button id="btnPrev" class="page-btn" onclick="prevPage()">« Précédent</button>
+      <span id="pageInfo">Page 1 / 1</span>
+      <button id="btnNext" class="page-btn" onclick="nextPage()">Suivant »</button>
+    </div>
+  </div>
+
+  <table id="qsoTable" style="display:none;">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Heure (UTC)</th>
+        <th>Indicatif</th>
+        <th>Bande</th>
+        <th>Mode</th>
+        <th>Pays</th>
+        <th>Distance</th>
+        <th>Fichier Source</th>
+      </tr>
+    </thead>
+    <tbody id="qsoList"></tbody>
+  </table>
+
+  <script>
+    const USERNAME = "zelliof4nkp-cmd";
+    const REPO = "log_f4nkp_live";
+    const API_URL = `https://api.github.com/repos/${USERNAME}/${REPO}/contents/`;
+
+    // Votre Grid Locator exact (JN07CH)
+    const MY_LOCATOR = "JN07CH";
+
+    let allQSOsGlobal = [];
+    let currentPage = 1;
+    let itemsPerPage = 40;
+
+    async function loadAllADIFs() {
+      const statusEl = document.getElementById("status");
+      const filesEl = document.getElementById("filesFound");
+
+      try {
+        const response = await fetch(API_URL);
+        if (!response.ok) throw new Error("Impossible de lire le dépôt GitHub.");
+
+        const contents = await response.json();
+        const adifFiles = contents.filter(item =>
+          item.type === "file" && (item.name.endsWith(".adi") || item.name.endsWith(".adx"))
+        );
+
+        if (adifFiles.length === 0) {
+          statusEl.textContent = "Aucun fichier .adi ou .adx trouvé dans le dépôt.";
+          return;
+        }
+
+        filesEl.textContent = `Fichiers scannés : ${adifFiles.map(f => f.name).join(", ")}`;
+
+        let rawQSOs = [];
+        for (const file of adifFiles) {
+          const fileRes = await fetch(file.download_url);
+          if (fileRes.ok) {
+            const text = await fileRes.text();
+            const qsos = parseADIF(text, file.name);
+            rawQSOs = rawQSOs.concat(qsos);
+          }
+        }
+
+        const { uniqueQSOs, duplicatesCount } = removeDuplicates(rawQSOs);
+
+        uniqueQSOs.sort((a, b) => {
+          const dateA = (a.QSO_DATE || '') + (a.TIME_ON || '');
+          const dateB = (b.QSO_DATE || '') + (b.TIME_ON || '');
+          return dateB.localeCompare(dateA);
+        });
+
+        allQSOsGlobal = uniqueQSOs;
+
+        displayStats(uniqueQSOs);
+        renderTablePage();
+
+        let statusMsg = `Total : ${uniqueQSOs.length} QSO(s) uniques chargés depuis ${adifFiles.length} fichier(s).`;
+        if (duplicatesCount > 0) {
+          statusMsg += ` (${duplicatesCount} doublon(s) ignoré(s))`;
+        }
+        statusEl.textContent = statusMsg;
+
+      } catch (err) {
+        statusEl.textContent = "Erreur : " + err.message;
+      }
+    }
+
+    function parseADIF(text, filename) {
+      const qsos = [];
+      const headerSplit = text.split(/<EOH>/i);
+      const qsoData = (headerSplit.length > 1 ? headerSplit[1] : text).split(/<EOR>/i);
+
+      for (let rawQso of qsoData) {
+        if (!rawQso.trim()) continue;
+
+        const qso = { _filename: filename };
+        const regex = /<([a-zA-Z0-9_]+):(\d+)(?::[A-Z])?>([^<]*)/gi;
+        let match;
+
+        while ((match = regex.exec(rawQso)) !== null) {
+          const field = match[1].toUpperCase();
+          const value = match[3].substring(0, parseInt(match[2], 10)).trim();
+          qso[field] = value;
+        }
+
+        if (qso.CALL) {
+          qsos.push(qso);
+        }
+      }
+      return qsos;
+    }
+
+    function removeDuplicates(qsos) {
+      const seen = new Set();
+      const uniqueQSOs = [];
+      let duplicatesCount = 0;
+
+      for (const qso of qsos) {
+        const timeKey = (qso.TIME_ON || '').substring(0, 4);
+        const key = `${qso.CALL}_${qso.QSO_DATE}_${timeKey}_${qso.BAND}_${qso.MODE}`.toUpperCase();
+
+        if (seen.has(key)) {
+          duplicatesCount++;
+        } else {
+          seen.add(key);
+          uniqueQSOs.push(qso);
+        }
+      }
+
+      return { uniqueQSOs, duplicatesCount };
+    }
+
+    // --- Calculateur Maidenhead Grid Locator (prise en compte de 4 ou 6 caractères) ---
+    function gridToLatLon(grid) {
+      if (!grid || grid.length < 4) return null;
+      grid = grid.toUpperCase();
+
+      let lon = (grid.charCodeAt(0) - 65) * 20 - 180 + (grid.charCodeAt(2) - 48) * 2;
+      let lat = (grid.charCodeAt(1) - 65) * 10 - 90 + (grid.charCodeAt(3) - 48) * 1;
+
+      if (grid.length >= 6) {
+        lon += (grid.charCodeAt(4) - 65) * (5 / 60) + (2.5 / 60);
+        lat += (grid.charCodeAt(5) - 65) * (2.5 / 60) + (1.25 / 60);
+      } else {
+        lon += 1.0;
+        lat += 0.5;
+      }
+
+      return { lat, lon };
+    }
+
+    function calculateDistance(grid1, grid2) {
+      const pos1 = gridToLatLon(grid1);
+      const pos2 = gridToLatLon(grid2);
+      if (!pos1 || !pos2) return null;
+
+      const R = 6371; // Rayon de la Terre en km
+      const dLat = (pos2.lat - pos1.lat) * Math.PI / 180;
+      const dLon = (pos2.lon - pos1.lon) * Math.PI / 180;
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(pos1.lat * Math.PI / 180) * Math.cos(pos2.lat * Math.PI / 180) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return Math.round(R * c);
+    }
+
+    function getCountryFromCall(call, adifCountry) {
+      if (adifCountry) return adifCountry;
+      if (!call) return '-';
+
+      const c = call.toUpperCase();
+      if (c.startsWith('F') || c.startsWith('TM')) return 'France';
+      if (c.startsWith('ON') || c.startsWith('OO')) return 'Belgique';
+      if (c.startsWith('HB')) return 'Suisse';
+      if (c.startsWith('DL') || c.startsWith('DK') || c.startsWith('DF')) return 'Allemagne';
+      if (c.startsWith('I') || c.startsWith('IK') || c.startsWith('IZ')) return 'Italie';
+      if (c.startsWith('EA') || c.startsWith('EB')) return 'Espagne';
+      if (c.startsWith('G') || c.startsWith('M') || c.startsWith('2E')) return 'Royaume-Uni';
+      if (c.startsWith('PA') || c.startsWith('PD') || c.startsWith('PE')) return 'Pays-Bas';
+      if (c.startsWith('W') || c.startsWith('K') || c.startsWith('N') || c.startsWith('AA')) return 'USA';
+      if (c.startsWith('VE') || c.startsWith('VA')) return 'Canada';
+      if (c.startsWith('JA') || c.startsWith('7K')) return 'Japon';
+      if (c.startsWith('VK')) return 'Australie';
+      if (c.startsWith('ZS')) return 'Afrique du Sud';
+      if (c.startsWith('PY')) return 'Brésil';
+
+      return 'Autre';
+    }
+
+    function displayStats(qsos) {
+      const modes = {};
+      const bands = {};
+
+      qsos.forEach(qso => {
+        const mode = (qso.MODE || 'Inconnu').toUpperCase();
+        const band = (qso.BAND || 'Inconnue').toLowerCase();
+
+        modes[mode] = (modes[mode] || 0) + 1;
+        bands[band] = (bands[band] || 0) + 1;
+      });
+
+      const modeContainer = document.getElementById("modeStats");
+      modeContainer.innerHTML = Object.entries(modes)
+        .sort((a, b) => b[1] - a[1])
+        .map(([mode, count]) => `<div class="stat-item">${mode} : <strong>${count}</strong></div>`)
+        .join('');
+
+      const bandContainer = document.getElementById("bandStats");
+      bandContainer.innerHTML = Object.entries(bands)
+        .sort((a, b) => b[1] - a[1])
+        .map(([band, count]) => `<div class="stat-item">${band} : <strong>${count}</strong></div>`)
+        .join('');
+
+      document.getElementById("statsContainer").style.display = "flex";
+    }
+
+    function renderTablePage() {
+      const totalQSOs = allQSOsGlobal.length;
+      let pageQSOs = [];
+      let totalPages = 1;
+
+      if (itemsPerPage === "all") {
+        pageQSOs = allQSOsGlobal;
+        currentPage = 1;
+      } else {
+        const perPage = parseInt(itemsPerPage, 10);
+        totalPages = Math.ceil(totalQSOs / perPage) || 1;
+
+        if (currentPage > totalPages) currentPage = totalPages;
+        if (currentPage < 1) currentPage = 1;
+
+        const start = (currentPage - 1) * perPage;
+        const end = start + perPage;
+        pageQSOs = allQSOsGlobal.slice(start, end);
+      }
+
+      displayQSOs(pageQSOs);
+
+      document.getElementById("pageInfo").textContent = itemsPerPage === "all"
+        ? `Tout afficher (${totalQSOs})`
+        : `Page ${currentPage} / ${totalPages}`;
+
+      document.getElementById("btnPrev").disabled = (currentPage === 1 || itemsPerPage === "all");
+      document.getElementById("btnNext").disabled = (currentPage === totalPages || itemsPerPage === "all");
+
+      document.getElementById("paginationBar").style.display = "flex";
+      document.getElementById("qsoTable").style.display = "table";
+    }
+
+    function changePerPage() {
+      const select = document.getElementById("itemsPerPage");
+      itemsPerPage = select.value === "all" ? "all" : parseInt(select.value, 10);
+      currentPage = 1;
+      renderTablePage();
+    }
+
+    function prevPage() {
+      if (currentPage > 1) {
+        currentPage--;
+        renderTablePage();
+      }
+    }
+
+    function nextPage() {
+      const totalPages = Math.ceil(allQSOsGlobal.length / parseInt(itemsPerPage, 10));
+      if (currentPage < totalPages) {
+        currentPage++;
+        renderTablePage();
+      }
+    }
+
+    function formatDate(d) {
+      if (!d || d.length !== 8) return d || '';
+      return `${d.substring(6,8)}/${d.substring(4,6)}/${d.substring(0,4)}`;
+    }
+
+    function formatTime(t) {
+      if (!t || t.length < 4) return t || '';
+      return `${t.substring(0,2)}:${t.substring(2,4)}`;
+    }
+
+    function displayQSOs(qsos) {
+      const tbody = document.getElementById("qsoList");
+      tbody.innerHTML = "";
+
+      qsos.forEach(qso => {
+        const tr = document.createElement("tr");
+        const call = qso.CALL || '';
+        const qrzUrl = `https://www.qrz.com/db/${encodeURIComponent(call)}`;
+
+        const country = getCountryFromCall(call, qso.COUNTRY);
+        let distText = '-';
+        if (qso.GRIDSQUARE) {
+          const km = calculateDistance(MY_LOCATOR, qso.GRIDSQUARE);
+          if (km !== null) distText = `${km} km`;
+        } else if (qso.DISTANCE) {
+          distText = `${qso.DISTANCE} km`;
+        }
+
+        tr.innerHTML = `
+          <td>${formatDate(qso.QSO_DATE)}</td>
+          <td>${formatTime(qso.TIME_ON)}</td>
+          <td>
+            ${call ? `<a href="${qrzUrl}" target="_blank" rel="noopener noreferrer" class="callsign-link">${call}</a>` : ''}
+          </td>
+          <td>${qso.BAND || ''}</td>
+          <td>${qso.MODE || ''}</td>
+          <td>${country}</td>
+          <td>${distText}</td>
+          <td class="source-file">${qso._filename}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    loadAllADIFs();
+  </script>
+</body>
+</html>
